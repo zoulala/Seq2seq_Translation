@@ -4,6 +4,31 @@ import pickle
 import random
 
 
+def batch_generator( en_arrs, zh_arrs, batchsize):
+    '''产生训练batch样本'''
+    assert len(en_arrs) == len(zh_arrs), 'error: incorrect length english&chinese samples'
+    n = len(en_arrs)
+    print('samples number:',n)
+    samples = [en_arrs[i] + zh_arrs[i] for i in range(n)]
+
+    while True:
+        random.shuffle(samples)  # 打乱顺序
+        for i in range(0, n, batchsize):
+            batch_samples = samples[i:i + batchsize]
+            batch_en = []
+            batch_en_len = []
+            batch_zh = []
+            batch_zh_len = []
+            batch_zh_label = []
+            for sample in batch_samples:
+                batch_en.append(sample[0])
+                batch_en_len.append(sample[1])
+                batch_zh.append(sample[2][:-1])
+                batch_zh_len.append(sample[3] - 1)
+                batch_zh_label.append(sample[2][1:])
+            yield np.array(batch_en), np.array(batch_en_len), np.array(batch_zh), np.array(batch_zh_len), np.array(
+                batch_zh_label)
+
 class Preprocess():
     def __init__(self):
         pass
@@ -23,6 +48,7 @@ class Preprocess():
                 lineID += 1
                 line = re.sub(u"[^0-9a-zA-Z.,?!']+",' ',line)  # 清除不需要的字符
                 line = re.sub(u"[.,?!]+", lambda x:' '+x.group(0),line)  # 在标点符号前插入空格
+                line = line.lower()  # 大写字母转小写
                 f_en_w.write(line+'\n')
             print('english lines number:',lineID)
             f_en_w.close()
@@ -35,8 +61,8 @@ class Preprocess():
                     continue
                 lineID += 1
                 line = re.sub(u"[^0-9\u4e00-\u9fa5。，？！']+",'',line)  # 清除不需要的字符
-                # line = re.sub(u"[.,?!]+", lambda x:' '+x.group(0),line)  # 在标点符号前插入空格
-                f_zh_w.write(line+'\n')
+                line = '<sos> '+' '.join(line) +' <eos>' # 增加起始符和结束符，每个字以空格隔开
+                f_zh_w.write(line + '\n')
             print('chinese lines number:',lineID)
             f_zh_w.close()
 
@@ -44,22 +70,17 @@ class Preprocess():
         # 获得所有文字
         data_en_clear = 'data/train.tags.en-zh.en_clear'
         data_zh_clear = 'data/train.tags.en-zh.zh_clear'
-        en_list = []  # 英文以单词为粒度
-        zh_list = ''  # 中文以字符为粒度
+        en_list = []  # 英文
+        zh_list = []  # 中文
         with open(data_en_clear, 'r', encoding='utf-8') as f_en:
             for line in f_en:
                 en_list += line.split()
 
         with open(data_zh_clear, 'r', encoding='utf-8') as f_zh:
             for line in f_zh:
-                line = line.strip()
-                zh_list += line
+                zh_list += line.split()
 
         return en_list,zh_list
-
-    def get_samples(self):
-        pass
-
 
 
 class TextConverter(object):
@@ -89,6 +110,7 @@ class TextConverter(object):
 
         self.seq_length = seq_length  # 样本序列最大长度
         self.word_to_int_table = {c: i for i, c in enumerate(self.vocab)}
+        self.int_to_word_table = dict(enumerate(self.vocab))
 
     @property
     def vocab_size(self):
@@ -100,11 +122,13 @@ class TextConverter(object):
         else:
             return len(self.vocab)
 
-
-    def save_to_file(self, filename):
-        with open(filename, 'wb') as f:
-            pickle.dump(self.vocab, f)
-
+    def int_to_word(self, index):
+        if index == len(self.vocab):
+            return '<unk>'
+        elif index < len(self.vocab):
+            return self.int_to_word_table[index]
+        else:
+            raise Exception('Unknown index!')
 
     def text_to_arr(self, text):
         arr = []
@@ -122,115 +146,21 @@ class TextConverter(object):
 
         return np.array(arr), np.array(query_len)
 
+    def arr_to_text(self, arr):
+        words = []
+        for index in arr:
+            words.append(self.int_to_word(index))
+        return "".join(words)
 
+    def get_en_arrs(self, file_path):
+        arrs_list = []  #
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.split()
+                arr, arr_len = self.text_to_arr(line)
+                arrs_list.append([arr, arr_len])
+        return arrs_list
 
-    def QAs_to_arr(self, QAs):
-
-        QA_arrs = []
-        for query, response, label in QAs:
-            # text to arr
-            query_arr,query_len = self.text_to_arr(query)
-            response_arr,response_len = self.text_to_arr(response)
-            QA_arrs.append([query_arr,query_len,response_arr,response_len, float(label)])
-        return QA_arrs
-
-    def libs_to_arrs(self,libs):
-        libs_arrs = []
-        for response in libs:
-            response_arr,response_len = self.text_to_arr(response)
-            libs_arrs.append([response_arr,response_len])
-        return libs_arrs
-
-    def batch_generator(self,QA_arrs, batchsize):
-        '''产生训练batch样本'''
-        n_samples = len(QA_arrs)
-        n_batches = int(n_samples / batchsize)
-        n = n_batches * batchsize
-        while True:
-            random.shuffle(QA_arrs)  # 打乱顺序
-            for i in range(0, n, batchsize):
-                batch_samples = QA_arrs[i:i + batchsize]
-                batch_q = []
-                batch_q_len = []
-                batch_r = []
-                batch_r_len = []
-                batch_y = []
-                for sample in batch_samples:
-                    batch_q.append(sample[0])
-                    batch_q_len.append(sample[1])
-                    batch_r.append(sample[2])
-                    batch_r_len.append(sample[3])
-                    batch_y.append(sample[4])
-                yield np.array(batch_q), np.array(batch_q_len), np.array(batch_r), np.array(batch_r_len), np.array(batch_y)
-
-
-    def val_samples_generator(self,QA_arrs, batchsize=500):
-        '''产生验证样本，batchsize分批验证，减少运行内存'''
-
-        val_g = []
-        n = len(QA_arrs)
-        for i in range(0, n, batchsize):
-            batch_samples = QA_arrs[i:i + batchsize]
-            batch_q = []
-            batch_q_len = []
-            batch_r = []
-            batch_r_len = []
-            batch_y = []
-            for sample in batch_samples:
-                batch_q.append(sample[0])
-                batch_q_len.append(sample[1])
-                batch_r.append(sample[2])
-                batch_r_len.append(sample[3])
-                batch_y.append(sample[4])
-            val_g.append((np.array(batch_q), np.array(batch_q_len), np.array(batch_r), np.array(batch_r_len), np.array(batch_y)))
-        return val_g
-
-
-    def index_to_QA_and_save(self,indexs,QAs, path):
-        print("start writing to eccel... ")
-        outputbook = xlwt.Workbook()
-        oh = outputbook.add_sheet('sheet1',cell_overwrite_ok=True)
-        for index_q, index_r in indexs:
-            que = QAs[index_q][0]
-            oh.write(index_q, 0, que)
-            k = 0
-            for r_i in list(index_r):
-                res = QAs[r_i][1]
-                oh.write(index_q, 2+k, res)
-                k += 1
-                if k > 5:
-                    break
-        outputbook.save(path+'_Q_for_QA.xls')
-        print('finished!')
-
-    def index_to_response(self, index_list, libs):
-        responses = []
-        for index in index_list:
-            responses.append(libs[index])
-        return responses
-    def index_to_response2(self, index_list, QAs):
-        responses = []
-        for index in index_list:
-            responses.append(QAs[index][-1])
-        return responses
-
-    def save_to_excel(self, QAY, path):
-        '''result to save...'''
-        outputbook = xlwt.Workbook()
-        oh = outputbook.add_sheet('sheet1', cell_overwrite_ok=True)
-        k = 0
-        for query, y_response, responses in QAY:
-            oh.write(k, 0, query)
-            oh.write(k, 1, y_response)
-            i = 0
-            for response in responses:
-                oh.write(k, 2 + i, response)
-                i += 1
-                if i > 5:
-                    break
-            k += 1
-        outputbook.save(path )
-        print('finished!')
 
 
 
@@ -238,13 +168,15 @@ if __name__ == '__main__':
     pass
     # loadConversations('data/xiaohuangji50w_fenciA.conv')
 
-    pre =  Preprocess()
-    # pre.clears()
-    a, b = pre.get_text()
-    print(len(a))
-    print(len(b))
 
-    et = TextConverter(text=a,save_dir='models/en_vocab.pkl')
-    zt = TextConverter(text=b,save_dir='models/zh_vocab.pkl')
-    print(et.vocab)
-    print(zt.vocab)
+
+    pre =  Preprocess()
+    pre.clears()
+    a, b = pre.get_text()
+
+    et = TextConverter(text=a,save_dir='models/en_vocab.pkl', max_vocab=10000, seq_length = 50)
+    zt = TextConverter(text=b,save_dir='models/zh_vocab.pkl', max_vocab=4000, seq_length = 50)
+    # print(et.vocab)
+    # print(zt.vocab)
+    print(et.vocab_size)
+    print(zt.vocab_size)
