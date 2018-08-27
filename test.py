@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 from read_utils import TextConverter, batch_generator
 from model import Model,Config
+# from model_attention import Model,Config
 
 def main(_):
 

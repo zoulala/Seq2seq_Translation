@@ -1,6 +1,10 @@
 # Seq2seq_Translation
 Tensorflow实现 seq2seq，并训练实现英-中翻译
 
+方法一、LSTM
+
+方法二、LSTM+attention
+
 # Data
 来源:https://wit3.fbk.eu/mt.php?release=2015-01
 

@@ -1,7 +1,8 @@
 import os
 import tensorflow as tf
 from read_utils import TextConverter, batch_generator
-from model import Model,Config
+from model import  Model,Config
+# from model_attention import Model,Config
 
 def main(_):
 

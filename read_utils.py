@@ -143,7 +143,8 @@ class TextConverter(object):
         else:
             arr = arr[:self.seq_length]
             query_len = self.seq_length
-
+        if query_len == 0:
+            query_len = 1
         return np.array(arr), np.array(query_len)
 
     def arr_to_text(self, arr):
